@@ -4,15 +4,13 @@ import logging
 from urllib.parse import parse_qs
 from urllib.parse import urlencode
 
+from django import forms
 from django.conf import settings
 from django.contrib.auth import logout as auth_logout, authenticate, login
 from django.contrib.auth.forms import AuthenticationForm
 from django.contrib.auth.views import login as auth_login_view, logout as auth_logout_view
-from django.shortcuts import redirect, render_to_response, resolve_url
-from django.http import HttpResponse, HttpResponseRedirect
-from django import forms
-from django.template import RequestContext
-from oic.oic.message import IdToken
+from django.http import HttpResponseRedirect
+from django.shortcuts import redirect, resolve_url, render
 
 from djangooidc.oidc import OIDCClients, OIDCError
 
@@ -59,7 +57,7 @@ def openid(request, op_name=None):
                 request.session["op"] = client.provider_info["issuer"]
             except Exception as e:
                 logger.exception("could not create OOID client")
-                return render_to_response("djangooidc/error.html", {"error": e})
+                return render(request, "djangooidc/error.html", {"error": e})
     else:
         form = DynamicProvider()
 
@@ -68,13 +66,12 @@ def openid(request, op_name=None):
         try:
             return client.create_authn_request(request.session)
         except Exception as e:
-            return render_to_response("djangooidc/error.html", {"error": e})
+            return render(request, "djangooidc/error.html", {"error": e})
 
     # Otherwise just render the list+form.
-    return render_to_response(template_name,
-                              {"op_list": [i for i in settings.OIDC_PROVIDERS.keys() if i], 'dynamic': dyn,
-                               'form': form, 'ilform': ilform, "next": request.session["next"]},
-                              context_instance=RequestContext(request))
+    return render(request, template_name,
+                  {"op_list": [i for i in settings.OIDC_PROVIDERS.keys() if i], 'dynamic': dyn,
+                   'form': form, 'ilform': ilform, "next": request.session["next"]})
 
 
 # Step 4: analyze the token returned by the OP
@@ -94,7 +91,7 @@ def authz_cb(request):
             raise Exception('this login is not valid in this application')
     except OIDCError as e:
         logging.getLogger('djangooidc.views.authz_cb').exception('Problem logging user in')
-        return render_to_response("djangooidc/error.html", {"error": e, "callback": query})
+        return render(request, "djangooidc/error.html", {"error": e, "callback": query})
 
 
 def logout(request, next_page=None):
@@ -115,7 +112,8 @@ def logout(request, next_page=None):
         if next_page is not None:
             # First attempt a direct redirection from OP to next_page
             next_page_url = resolve_url(next_page)
-            urls = [url for url in client.registration_response["post_logout_redirect_uris"] if next_page_url in url]
+            urls = [url for url in client.registration_response["post_logout_redirect_uris"] if
+                    next_page_url in url]
             if len(urls) > 0:
                 extra_args["post_logout_redirect_uri"] = urls[0]
             else:
@@ -128,7 +126,8 @@ def logout(request, next_page=None):
                     extra_args["post_logout_redirect_uri"] = urls[0]
                 else:
                     # Just take the first registered URL as a desperate attempt to come back to the application
-                    extra_args["post_logout_redirect_uri"] = client.registration_response["post_logout_redirect_uris"][
+                    extra_args["post_logout_redirect_uri"] = \
+                    client.registration_response["post_logout_redirect_uris"][
                         0]
     else:
         # No post_logout_redirect_uris registered at the OP - no redirection to the application is possible anyway
@@ -145,7 +144,7 @@ def logout(request, next_page=None):
             'id_token_hint': request.session['access_token'],
             'state': request.session['state'],
         }
-        request_args.update(extra_args) # should include the post_logout_redirect_uri
+        request_args.update(extra_args)  # should include the post_logout_redirect_uri
 
         # id_token iss is the token issuer, the url of the issuing server
         # the full url works for the BOSS OIDC Provider, not tested on any other provider
